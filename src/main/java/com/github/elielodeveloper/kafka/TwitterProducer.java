@@ -1,13 +1,21 @@
 package com.github.elielodeveloper.kafka;
 
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.kafka.clients.producer.Callback;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties.Producer;
 
 import com.google.common.collect.Lists;
 import com.twitter.hbc.ClientBuilder;
@@ -35,17 +43,19 @@ public class TwitterProducer {
 		new TwitterProducer().run();
 	}
 	public void run(){
-		
+
 		logger.info("Steup");
-		/** Set up your blocking queues: Be sure to size these properly based on expected TPS of your stream */
+		
+		//Set up your blocking queues: Be sure to size these properly based on expected TPS of your stream
 		BlockingQueue<String> msgQueue = new LinkedBlockingQueue<String>(1000);
+		
 		//create a twitter client
 		Client client = createTwitterClient(msgQueue);
-		
-		// create a kafka producer
 		client.connect();
 		
-		// loop to send tweets to kafka
+		// create a kafka producer
+		KafkaProducer<String, String> producer = createKafkaProducer();
+		
 		// on a different thread, or multiple different threads....
 		while (!client.isDone()) {
 			String msg = null;
@@ -56,7 +66,17 @@ public class TwitterProducer {
 			client.stop();
 		}
 		  if(msg != null)
-			  logger.info(msg);
+			logger.info(msg);
+		  	producer.send(new ProducerRecord<>("twitter_tweets", null, msg), new Callback() {
+
+				@Override
+				public void onCompletion(RecordMetadata metadata, Exception exception) {
+					if(exception != null) {
+						logger.error("error while seding msg to kafka broker", exception);
+					}					
+				}
+		  	});
+		  
 		}
 		logger.info("End of application");
 	}
@@ -83,6 +103,20 @@ public class TwitterProducer {
 				Client hosebirdClient = builder.build();
 				// Attempts to establish a connection.
 				return hosebirdClient;
+	}
+	
+	public KafkaProducer<String, String> createKafkaProducer(){
+		String bootstrapServers = "127.0.0.1:9092";
+		
+		//Create Producer properties
+		Properties properties = new Properties();
+		properties.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+		properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+		properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+		
+		// Create the Producer
+		KafkaProducer<String, String> producer = new KafkaProducer<String, String>(properties);
+		return producer;
 	}
 
 }
